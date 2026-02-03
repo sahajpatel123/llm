@@ -1,6 +1,6 @@
 # White Chat (Foundation)
 
-Minimal single-page chat foundation using Next.js App Router, Postgres, and Prisma. No provider integration or duel logic is implemented yet.
+Minimal single-page chat foundation using Next.js App Router, Postgres, and Prisma.
 
 ## Local development
 
@@ -48,8 +48,12 @@ npm run db:generate
 npm run db:migrate
 ```
 
+## Provider mode (safe defaults)
+
+- Default mode is `mock` for development; no external calls are made.
+- To enable live mode, set `PROVIDER_MODE="live"` and fill provider env vars in `.env.local`.
+
 ## Notes
 
 - The UI is a single page at `/` with a minimal layout scaffold.
-- There are no provider integrations or duel mechanics yet.
 - All secrets stay in `.env.local`.

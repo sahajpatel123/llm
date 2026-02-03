@@ -30,6 +30,21 @@ type ApiError = {
   error: string;
 };
 
+type DuelState = {
+  id: string;
+  left: { text: string; key: "A" | "B" };
+  right: { text: string; key: "A" | "B" };
+};
+
+type QuotaState = {
+  plan: "A1" | "A2";
+  subscriptionStatus: "active" | "inactive";
+  periodKey: string;
+  remainingMessages: number;
+  remainingVerified: number;
+  remainingVerifiedToday: number;
+};
+
 function classNames(...values: Array<string | false | null | undefined>) {
   return values.filter(Boolean).join(" ");
 }
@@ -51,10 +66,17 @@ export default function HomePage() {
   const [messageInput, setMessageInput] = useState("");
   const [mode, setMode] = useState<"exploration" | "verified">("exploration");
   const [uiError, setUiError] = useState<string | null>(null);
+  const [duel, setDuel] = useState<DuelState | null>(null);
+  const [quota, setQuota] = useState<QuotaState | null>(null);
+  const [sending, setSending] = useState(false);
 
   const selectedThread = useMemo(
     () => threads.find((thread) => thread.id === selectedThreadId) ?? null,
     [threads, selectedThreadId],
+  );
+
+  const verifiedDisabled = Boolean(
+    quota && (quota.remainingVerified <= 0 || quota.remainingVerifiedToday <= 0),
   );
 
   async function loadMe() {
@@ -97,6 +119,25 @@ export default function HomePage() {
     setMessagesLoading(false);
   }
 
+  async function loadQuota() {
+    const res = await fetch("/api/quota", { credentials: "include" });
+    if (res.status === 401) {
+      setQuota(null);
+      return;
+    }
+    const data = (await res.json()) as { ok: boolean } & Partial<QuotaState>;
+    if (data.ok) {
+      setQuota({
+        plan: data.plan ?? "A1",
+        subscriptionStatus: data.subscriptionStatus ?? "inactive",
+        periodKey: data.periodKey ?? "",
+        remainingMessages: data.remainingMessages ?? 0,
+        remainingVerified: data.remainingVerified ?? 0,
+        remainingVerifiedToday: data.remainingVerifiedToday ?? 0,
+      });
+    }
+  }
+
   async function handleAuthSubmit(event: React.FormEvent) {
     event.preventDefault();
     setAuthLoading(true);
@@ -123,6 +164,7 @@ export default function HomePage() {
     setAuthPassword("");
     setAuthLoading(false);
     await loadThreads();
+    await loadQuota();
   }
 
   async function handleLogout() {
@@ -131,36 +173,24 @@ export default function HomePage() {
     setThreads([]);
     setSelectedThreadId(null);
     setMessages([]);
+    setDuel(null);
+    setQuota(null);
   }
 
-  async function handleNewChat() {
+  function handleNewChat() {
     if (!user) {
       setAuthOpen(true);
       return;
     }
+    setSelectedThreadId(null);
+    setMessages([]);
+    setDuel(null);
     setUiError(null);
-    const res = await fetch("/api/threads", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify({}),
-    });
-
-    if (res.status === 401) {
-      setAuthOpen(true);
-      return;
-    }
-
-    const data = (await res.json()) as { ok: boolean; thread?: Thread } | ApiError;
-    if ("thread" in data && data.thread) {
-      setThreads((prev) => [data.thread as Thread, ...prev]);
-      setSelectedThreadId(data.thread.id);
-      setMessages([]);
-    }
   }
 
   async function handleThreadSelect(threadId: string) {
     setSelectedThreadId(threadId);
+    setDuel(null);
     await loadMessages(threadId);
   }
 
@@ -186,7 +216,18 @@ export default function HomePage() {
     if (selectedThreadId === threadId) {
       setSelectedThreadId(null);
       setMessages([]);
+      setDuel(null);
     }
+  }
+
+  function mapError(code: string) {
+    if (code === "quota_exceeded") return "Message limit reached.";
+    if (code === "verified_quota_exceeded") return "Verified limit reached.";
+    if (code === "verified_daily_limit") return "Daily verified limit reached.";
+    if (code === "provider_not_configured") return "Service not configured.";
+    if (code === "provider_error") return "Service error.";
+    if (code === "rate_limited") return "Too many requests.";
+    return "Something went wrong.";
   }
 
   async function handleSend() {
@@ -194,20 +235,70 @@ export default function HomePage() {
       setAuthOpen(true);
       return;
     }
-    if (!selectedThreadId) {
-      setUiError("Select or create a chat first.");
-      return;
-    }
+
     const content = messageInput.trim();
     if (!content) return;
 
+    setSending(true);
     setUiError(null);
 
-    const res = await fetch(`/api/threads/${selectedThreadId}/messages`, {
+    const res = await fetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "include",
-      body: JSON.stringify({ content }),
+      body: JSON.stringify({
+        threadId: selectedThreadId ?? undefined,
+        content,
+        mode,
+      }),
+    });
+
+    if (res.status === 401) {
+      setAuthOpen(true);
+      setSending(false);
+      return;
+    }
+
+    const data = (await res.json()) as
+      | ApiError
+      | {
+          ok: true;
+          kind: "duel" | "single";
+          thread: { id: string; title: string; lockedProvider: "A" | "B" | null };
+          duel?: DuelState;
+          messages: Message[];
+        };
+
+    if (!res.ok) {
+      setUiError(mapError(data.error));
+      setSending(false);
+      return;
+    }
+
+    if (data.kind === "duel" && data.duel) {
+      setDuel(data.duel);
+      setMessages(data.messages);
+      setSelectedThreadId(data.thread.id);
+    } else {
+      setDuel(null);
+      setMessages(data.messages);
+      setSelectedThreadId(data.thread.id);
+    }
+
+    setMessageInput("");
+    await loadThreads();
+    await loadQuota();
+    setSending(false);
+  }
+
+  async function handleVote(choice: "A" | "B") {
+    if (!duel) return;
+
+    const res = await fetch("/api/vote", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ duelId: duel.id, choice }),
     });
 
     if (res.status === 401) {
@@ -215,20 +306,23 @@ export default function HomePage() {
       return;
     }
 
-    const data = (await res.json()) as { ok: boolean; message?: Message } | ApiError;
-    if ("message" in data && data.message) {
-      setMessages((prev) => [...prev, data.message as Message]);
-      setMessageInput("");
-      await loadThreads();
-    } else if ("error" in data) {
-      setUiError("Message failed to send.");
+    const data = (await res.json()) as ApiError | { ok: true; messages: Message[] };
+    if (!res.ok) {
+      setUiError(mapError(data.error));
+      return;
     }
+
+    setDuel(null);
+    setMessages(data.messages);
+    await loadThreads();
+    await loadQuota();
   }
 
   useEffect(() => {
     loadMe().then((activeUser) => {
       if (activeUser) {
         loadThreads();
+        loadQuota();
       }
     });
   }, []);
@@ -237,6 +331,12 @@ export default function HomePage() {
     if (!selectedThreadId) return;
     loadMessages(selectedThreadId);
   }, [selectedThreadId]);
+
+  useEffect(() => {
+    if (verifiedDisabled && mode === "verified") {
+      setMode("exploration");
+    }
+  }, [verifiedDisabled, mode]);
 
   return (
     <div className="flex h-screen bg-white text-black">
@@ -299,6 +399,14 @@ export default function HomePage() {
           {user ? (
             <div className="border-t border-gray-200 px-4 py-3 text-xs text-gray-600">
               <div className="truncate">{user.email}</div>
+              {quota ? (
+                <div className="mt-2 space-y-1 text-[10px] text-gray-500">
+                  <div>Plan {quota.plan}</div>
+                  <div>Messages left: {quota.remainingMessages}</div>
+                  <div>Verified left: {quota.remainingVerified}</div>
+                  <div>Verified today: {quota.remainingVerifiedToday}</div>
+                </div>
+              ) : null}
               <button
                 type="button"
                 className="mt-2 rounded border border-gray-300 px-2 py-1 text-[10px]"
@@ -333,7 +441,30 @@ export default function HomePage() {
         </div>
 
         <div className="px-6 pb-28 pt-6 text-sm">
-          {!selectedThread ? (
+          {duel ? (
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="rounded border border-gray-200 p-4">
+                <div className="whitespace-pre-wrap text-sm text-black">{duel.left.text}</div>
+                <button
+                  type="button"
+                  className="mt-3 rounded border border-gray-300 px-3 py-1 text-xs"
+                  onClick={() => handleVote(duel.left.key)}
+                >
+                  Select
+                </button>
+              </div>
+              <div className="rounded border border-gray-200 p-4">
+                <div className="whitespace-pre-wrap text-sm text-black">{duel.right.text}</div>
+                <button
+                  type="button"
+                  className="mt-3 rounded border border-gray-300 px-3 py-1 text-xs"
+                  onClick={() => handleVote(duel.right.key)}
+                >
+                  Select
+                </button>
+              </div>
+            </div>
+          ) : !selectedThread ? (
             <div className="text-gray-500">Start a chat...</div>
           ) : messagesLoading ? (
             <div className="text-gray-500">Loading...</div>
@@ -342,9 +473,15 @@ export default function HomePage() {
           ) : (
             <div className="space-y-4">
               {messages.map((message) => (
-                <div key={message.id} className="rounded border border-gray-200 px-3 py-2">
+                <div
+                  key={message.id}
+                  className={classNames(
+                    "rounded border border-gray-200 px-3 py-2",
+                    message.role === "user" ? "bg-white" : "bg-gray-50",
+                  )}
+                >
                   <div className="text-xs text-gray-500">
-                    {message.role === "user" ? "You" : message.role}
+                    {message.role === "user" ? "You" : "Assistant"}
                   </div>
                   <div className="whitespace-pre-wrap text-sm text-black">
                     {message.content}
@@ -384,8 +521,10 @@ export default function HomePage() {
                   className={classNames(
                     "rounded px-2 py-1",
                     mode === "verified" ? "bg-black text-white" : "text-black",
+                    verifiedDisabled ? "opacity-50" : "",
                   )}
                   onClick={() => setMode("verified")}
+                  disabled={verifiedDisabled}
                 >
                   Verified
                 </button>
@@ -394,12 +533,12 @@ export default function HomePage() {
                 type="button"
                 className={classNames(
                   "rounded border border-gray-300 px-3 py-2 text-sm",
-                  !messageInput.trim() || !selectedThreadId ? "text-gray-400" : "text-black",
+                  !messageInput.trim() ? "text-gray-400" : "text-black",
                 )}
-                disabled={!messageInput.trim() || !selectedThreadId}
+                disabled={!messageInput.trim() || sending}
                 onClick={handleSend}
               >
-                Send
+                {sending ? "Sending" : "Send"}
               </button>
             </div>
           </div>
