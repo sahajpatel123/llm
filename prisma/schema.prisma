@@ -1,0 +1,131 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Plan {
+  A1
+  A2
+}
+
+enum SubscriptionStatus {
+  active
+  inactive
+}
+
+enum Provider {
+  A
+  B
+}
+
+enum Role {
+  user
+  assistant
+  system
+}
+
+model User {
+  id           String          @id @default(uuid())
+  email        String          @unique
+  passwordHash String
+  createdAt    DateTime        @default(now())
+
+  subscriptions Subscription[]
+  threads       Thread[]
+  messages      Message[]
+  usageLedgers  UsageLedger[]
+  sessions      Session[]
+}
+
+model Session {
+  id         String   @id @default(uuid())
+  userId     String
+  tokenHash  String   @unique
+  createdAt  DateTime @default(now())
+  expiresAt  DateTime
+  lastSeenAt DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Subscription {
+  id                 String             @id @default(uuid())
+  userId             String
+  plan               Plan
+  status             SubscriptionStatus
+  currentPeriodStart DateTime
+  currentPeriodEnd   DateTime
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Thread {
+  id             String    @id @default(uuid())
+  userId         String
+  title          String
+  lockedProvider Provider?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages Message[]
+  duel     Duel?
+
+  @@index([userId, updatedAt])
+}
+
+model Message {
+  id        String   @id @default(uuid())
+  threadId  String
+  userId    String
+  role      Role
+  content   String   @db.Text
+  createdAt DateTime @default(now())
+
+  thread Thread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  duelAsUserMessage Duel? @relation("DuelUserMessage")
+
+  @@index([threadId, createdAt])
+  @@index([userId])
+}
+
+model Duel {
+  id             String   @id @default(uuid())
+  threadId       String   @unique
+  userMessageId  String   @unique
+  optionA        String   @db.Text
+  optionB        String   @db.Text
+  uiOrderSeed    Int
+  chosen         Provider?
+  createdAt      DateTime @default(now())
+
+  thread Thread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  message Message @relation("DuelUserMessage", fields: [userMessageId], references: [id], onDelete: Cascade)
+}
+
+model UsageLedger {
+  id                String   @id @default(uuid())
+  userId            String
+  periodKey         String
+  messagesUsed      Int      @default(0)
+  verifiedUsed      Int      @default(0)
+  verifiedUsedToday Int      @default(0)
+  verifiedDayKey    String
+  updatedAt         DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, periodKey])
+  @@index([userId])
+}
