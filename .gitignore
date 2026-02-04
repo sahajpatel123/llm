@@ -12,3 +12,5 @@ yarn-error.log*
 .prisma
 prisma/dev.db
 prisma/dev.db-journal
+/public/sw.js
+/public/workbox-*.js

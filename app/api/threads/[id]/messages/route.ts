@@ -4,10 +4,20 @@ import { requireUser, unauthorizedResponse } from "@/lib/auth";
 
 const MAX_MESSAGE_LENGTH = 8000;
 
-export async function GET(req: Request, context: { params: { id: string } }) {
+function getThreadId(req: Request) {
+  const segments = new URL(req.url).pathname.split("/").filter(Boolean);
+  const threadIndex = segments.indexOf("threads");
+  return threadIndex >= 0 ? segments[threadIndex + 1] ?? "" : "";
+}
+
+export async function GET(req: Request) {
   try {
     const user = await requireUser(req);
-    const threadId = context.params.id;
+    const threadId = getThreadId(req);
+
+    if (!threadId) {
+      return NextResponse.json({ ok: false, error: "not_found" }, { status: 404 });
+    }
 
     const thread = await prisma.thread.findFirst({
       where: { id: threadId, userId: user.id },
@@ -35,12 +45,16 @@ export async function GET(req: Request, context: { params: { id: string } }) {
   }
 }
 
-export async function POST(req: Request, context: { params: { id: string } }) {
+export async function POST(req: Request) {
   try {
     const user = await requireUser(req);
-    const threadId = context.params.id;
+    const threadId = getThreadId(req);
     const body = (await req.json().catch(() => null)) as { content?: string } | null;
     const content = body?.content?.trim() ?? "";
+
+    if (!threadId) {
+      return NextResponse.json({ ok: false, error: "not_found" }, { status: 404 });
+    }
 
     if (!content || content.length > MAX_MESSAGE_LENGTH) {
       return NextResponse.json({ ok: false, error: "invalid_input" }, { status: 400 });

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { requireUser, unauthorizedResponse } from "@/lib/auth";
-import { checkRateLimit } from "@/lib/rateLimit";
+import { checkRateLimit, getRateLimitKey } from "@/lib/rateLimit";
 
 type VoteRequest = {
   duelId?: string;
@@ -12,7 +12,8 @@ export async function POST(req: Request) {
   try {
     const user = await requireUser(req);
 
-    if (!checkRateLimit(user.id)) {
+    const rateKey = getRateLimitKey(req, user.id);
+    if (!checkRateLimit(rateKey)) {
       return NextResponse.json({ ok: false, error: "rate_limited" }, { status: 429 });
     }
 

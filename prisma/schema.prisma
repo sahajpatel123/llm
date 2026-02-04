@@ -28,6 +28,12 @@ enum Role {
   system
 }
 
+enum PaymentStatus {
+  created
+  verified
+  failed
+}
+
 model User {
   id           String          @id @default(uuid())
   email        String          @unique
@@ -39,6 +45,7 @@ model User {
   messages      Message[]
   usageLedgers  UsageLedger[]
   sessions      Session[]
+  payments      Payment[]
 }
 
 model Session {
@@ -63,6 +70,23 @@ model Subscription {
   currentPeriodEnd   DateTime
   createdAt          DateTime           @default(now())
   updatedAt          DateTime           @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Payment {
+  id        String        @id @default(uuid())
+  userId    String
+  plan      Plan
+  amount    Int
+  currency  String
+  orderId   String        @unique
+  paymentId String?       @unique
+  status    PaymentStatus
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 

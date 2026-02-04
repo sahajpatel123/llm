@@ -4,7 +4,7 @@ import { clearSessionCookie, hashToken } from "@/lib/auth";
 import { cookies } from "next/headers";
 
 export async function POST() {
-  const cookieStore = cookies();
+  const cookieStore = await cookies();
   const token = cookieStore.get("sid")?.value;
 
   if (token) {
