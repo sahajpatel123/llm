@@ -1,7 +1,6 @@
-import withPWA from "next-pwa";
-
 const config = {
   reactStrictMode: true,
+  outputFileTracingRoot: new URL('.', import.meta.url).pathname,
   async headers() {
     return [
       {
@@ -16,25 +15,4 @@ const config = {
   },
 };
 
-export default withPWA({
-  dest: "public",
-  disable: process.env.NODE_ENV === "development",
-  runtimeCaching: [
-    {
-      urlPattern: /^https?:\/\/[^/]+\/_next\/static\//,
-      handler: "CacheFirst",
-      options: {
-        cacheName: "next-static",
-        expiration: { maxEntries: 64, maxAgeSeconds: 86400 },
-      },
-    },
-    {
-      urlPattern: /^https?:\/\/[^/]+\/icons\//,
-      handler: "CacheFirst",
-      options: {
-        cacheName: "icons",
-        expiration: { maxEntries: 16, maxAgeSeconds: 86400 },
-      },
-    },
-  ],
-})(config);
+export default config;

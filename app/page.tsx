@@ -503,7 +503,15 @@ export default function HomePage() {
     installPrompt.userChoice.finally(() => setInstallPrompt(null));
   }
 
-  useEffect(() => {
+    useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (process.env.NODE_ENV !== "production") return;
+    if (!("serviceWorker" in navigator)) return;
+
+    navigator.serviceWorker.register("/sw.js").catch(() => {});
+  }, []);
+
+useEffect(() => {
     const onInstallPrompt = (event: Event) => {
       event.preventDefault();
       setInstallPrompt(event as BeforeInstallPromptEvent);
